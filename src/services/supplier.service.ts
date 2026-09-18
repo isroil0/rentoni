@@ -8,7 +8,7 @@ export const SupplierService = {
     const where = {
       ...(params.active !== undefined ? { active: params.active } : {}),
       ...(params.search
-        ? { OR: [{ name: { contains: params.search } }, { phone: { contains: params.search } }] }
+        ? { OR: [{ name: { contains: params.search, mode: 'insensitive' as const } }, { phone: { contains: params.search, mode: 'insensitive' as const } }] }
         : {}),
     };
     const [items, total] = await Promise.all([

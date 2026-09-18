@@ -25,9 +25,9 @@ export const VariantService = {
       ...(params.search
         ? {
             OR: [
-              { sku: { contains: params.search } },
-              { barcode: { contains: params.search } },
-              { product: { name: { contains: params.search } } },
+              { sku: { contains: params.search, mode: 'insensitive' as const } },
+              { barcode: { contains: params.search, mode: 'insensitive' as const } },
+              { product: { name: { contains: params.search, mode: 'insensitive' as const } } },
             ],
           }
         : {}),

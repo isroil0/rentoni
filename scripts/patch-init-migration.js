@@ -1,5 +1,7 @@
-// SQLite cannot ALTER TABLE ADD CONSTRAINT, so CHECK constraints must be injected
-// into the generated CREATE TABLE statements of the initial migration.
+// Prisma cannot express CHECK constraints in schema.prisma, so they are injected into
+// the generated CREATE TABLE statements of the initial migration. Inlining them (rather
+// than a trailing ALTER TABLE) keeps the constraint in force from the moment the table
+// exists, and works identically on SQLite and PostgreSQL.
 const fs = require('fs');
 const file = process.argv[2];
 let sql = fs.readFileSync(file, 'utf8');
@@ -71,7 +73,8 @@ for (const [table, checks] of Object.entries(CHECKS)) {
 
 const header = `-- Initial schema for the Men's Shirt POS + Inventory backend.
 -- CHECK constraints below are hand-added on top of the Prisma-generated DDL because
--- SQLite has no ENUM type and Prisma cannot express CHECK constraints in schema.prisma.
+-- Prisma cannot express CHECK constraints in schema.prisma. They also stand in for the
+-- status/type ENUMs the schema models as plain strings.
 -- They are the last line of defence behind the application-level validation and the
 -- centralised InventoryService (notably: inventory.quantity >= 0).
 

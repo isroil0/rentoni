@@ -15,9 +15,9 @@ export const CustomerService = {
       ...(params.search
         ? {
             OR: [
-              { name: { contains: params.search } },
-              { email: { contains: params.search } },
-              { phone: { contains: params.search } },
+              { name: { contains: params.search, mode: 'insensitive' as const } },
+              { email: { contains: params.search, mode: 'insensitive' as const } },
+              { phone: { contains: params.search, mode: 'insensitive' as const } },
             ],
           }
         : {}),

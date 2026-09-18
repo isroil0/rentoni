@@ -314,10 +314,10 @@ export const OrderService = {
       ...(params.search
         ? {
             OR: [
-              { orderNumber: { contains: params.search } },
-              { customerName: { contains: params.search } },
-              { customer: { name: { contains: params.search } } },
-              { customer: { email: { contains: params.search } } },
+              { orderNumber: { contains: params.search, mode: 'insensitive' as const } },
+              { customerName: { contains: params.search, mode: 'insensitive' as const } },
+              { customer: { name: { contains: params.search, mode: 'insensitive' as const } } },
+              { customer: { email: { contains: params.search, mode: 'insensitive' as const } } },
             ],
           }
         : {}),

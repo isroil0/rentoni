@@ -1,62 +1,72 @@
 -- Initial schema for the Men's Shirt POS + Inventory backend.
 -- CHECK constraints below are hand-added on top of the Prisma-generated DDL because
--- SQLite has no ENUM type and Prisma cannot express CHECK constraints in schema.prisma.
+-- Prisma cannot express CHECK constraints in schema.prisma. They also stand in for the
+-- status/type ENUMs the schema models as plain strings.
 -- They are the last line of defence behind the application-level validation and the
 -- centralised InventoryService (notably: inventory.quantity >= 0).
 
+-- CreateSchema
+CREATE SCHEMA IF NOT EXISTS "public";
+
 -- CreateTable
 CREATE TABLE "users" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "id" SERIAL NOT NULL,
     "name" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "phone" TEXT,
     "password_hash" TEXT NOT NULL,
     "role" TEXT NOT NULL DEFAULT 'CUSTOMER',
     "active" BOOLEAN NOT NULL DEFAULT true,
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" DATETIME NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "users_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "users_role_check" CHECK ("role" IN ('SUPER_ADMIN','CUSTOMER'))
 );
 
 -- CreateTable
 CREATE TABLE "sessions" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "user_id" INTEGER NOT NULL,
     "refresh_token_hash" TEXT NOT NULL,
     "user_agent" TEXT,
     "ip" TEXT,
-    "revoked_at" DATETIME,
-    "expires_at" DATETIME NOT NULL,
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "sessions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    "revoked_at" TIMESTAMP(3),
+    "expires_at" TIMESTAMP(3) NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "sessions_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "categories" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "id" SERIAL NOT NULL,
     "name" TEXT NOT NULL,
     "description" TEXT,
     "active" BOOLEAN NOT NULL DEFAULT true,
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" DATETIME NOT NULL
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "categories_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "products" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "id" SERIAL NOT NULL,
     "category_id" INTEGER NOT NULL,
     "name" TEXT NOT NULL,
     "description" TEXT,
     "brand" TEXT,
     "active" BOOLEAN NOT NULL DEFAULT true,
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" DATETIME NOT NULL,
-    CONSTRAINT "products_category_id_fkey" FOREIGN KEY ("category_id") REFERENCES "categories" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "products_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "product_variants" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "id" SERIAL NOT NULL,
     "product_id" INTEGER NOT NULL,
     "sku" TEXT NOT NULL,
     "barcode" TEXT,
@@ -66,9 +76,10 @@ CREATE TABLE "product_variants" (
     "selling_price_cents" INTEGER NOT NULL,
     "minimum_stock" INTEGER NOT NULL DEFAULT 0,
     "active" BOOLEAN NOT NULL DEFAULT true,
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" DATETIME NOT NULL,
-    CONSTRAINT "product_variants_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "product_variants_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "pv_cost_price_check" CHECK ("cost_price_cents" >= 0),
     CONSTRAINT "pv_selling_price_check" CHECK ("selling_price_cents" >= 0),
     CONSTRAINT "pv_minimum_stock_check" CHECK ("minimum_stock" >= 0),
@@ -79,30 +90,32 @@ CREATE TABLE "product_variants" (
 
 -- CreateTable
 CREATE TABLE "product_images" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "id" SERIAL NOT NULL,
     "product_id" INTEGER NOT NULL,
     "url" TEXT NOT NULL,
     "alt_text" TEXT,
     "sort_order" INTEGER NOT NULL DEFAULT 0,
     "is_primary" BOOLEAN NOT NULL DEFAULT false,
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "product_images_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "product_images_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "pi_sort_order_check" CHECK ("sort_order" >= 0)
 );
 
 -- CreateTable
 CREATE TABLE "inventory" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "id" SERIAL NOT NULL,
     "variant_id" INTEGER NOT NULL,
     "quantity" INTEGER NOT NULL DEFAULT 0,
-    "updated_at" DATETIME NOT NULL,
-    CONSTRAINT "inventory_variant_id_fkey" FOREIGN KEY ("variant_id") REFERENCES "product_variants" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "inventory_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "inventory_quantity_non_negative" CHECK ("quantity" >= 0)
 );
 
 -- CreateTable
 CREATE TABLE "inventory_transactions" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "id" SERIAL NOT NULL,
     "variant_id" INTEGER NOT NULL,
     "type" TEXT NOT NULL,
     "quantity" INTEGER NOT NULL,
@@ -112,9 +125,9 @@ CREATE TABLE "inventory_transactions" (
     "reference_id" INTEGER,
     "user_id" INTEGER,
     "note" TEXT,
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "inventory_transactions_variant_id_fkey" FOREIGN KEY ("variant_id") REFERENCES "product_variants" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "inventory_transactions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "inventory_transactions_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "it_type_check" CHECK ("type" IN ('PURCHASE','SALE','RETURN','ADJUSTMENT_IN','ADJUSTMENT_OUT','DAMAGE')),
     CONSTRAINT "it_quantity_check" CHECK ("quantity" <> 0),
     CONSTRAINT "it_prev_check" CHECK ("previous_quantity" >= 0),
@@ -125,45 +138,47 @@ CREATE TABLE "inventory_transactions" (
 
 -- CreateTable
 CREATE TABLE "suppliers" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "id" SERIAL NOT NULL,
     "name" TEXT NOT NULL,
     "phone" TEXT,
     "address" TEXT,
     "notes" TEXT,
     "active" BOOLEAN NOT NULL DEFAULT true,
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" DATETIME NOT NULL
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "suppliers_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "purchases" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "id" SERIAL NOT NULL,
     "purchase_number" TEXT NOT NULL,
     "supplier_id" INTEGER NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'DRAFT',
     "total_cost_cents" INTEGER NOT NULL DEFAULT 0,
     "created_by" INTEGER,
     "note" TEXT,
-    "received_at" DATETIME,
-    "cancelled_at" DATETIME,
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" DATETIME NOT NULL,
-    CONSTRAINT "purchases_supplier_id_fkey" FOREIGN KEY ("supplier_id") REFERENCES "suppliers" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT "purchases_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    "received_at" TIMESTAMP(3),
+    "cancelled_at" TIMESTAMP(3),
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "purchases_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "purchases_status_check" CHECK ("status" IN ('DRAFT','RECEIVED','CANCELLED')),
     CONSTRAINT "purchases_total_check" CHECK ("total_cost_cents" >= 0)
 );
 
 -- CreateTable
 CREATE TABLE "purchase_items" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "id" SERIAL NOT NULL,
     "purchase_id" INTEGER NOT NULL,
     "variant_id" INTEGER NOT NULL,
     "quantity" INTEGER NOT NULL,
     "unit_cost_cents" INTEGER NOT NULL,
     "total_cents" INTEGER NOT NULL,
-    CONSTRAINT "purchase_items_purchase_id_fkey" FOREIGN KEY ("purchase_id") REFERENCES "purchases" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "purchase_items_variant_id_fkey" FOREIGN KEY ("variant_id") REFERENCES "product_variants" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+
+    CONSTRAINT "purchase_items_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "puri_quantity_check" CHECK ("quantity" > 0),
     CONSTRAINT "puri_unit_cost_check" CHECK ("unit_cost_cents" >= 0),
     CONSTRAINT "puri_total_check" CHECK ("total_cents" >= 0)
@@ -171,7 +186,7 @@ CREATE TABLE "purchase_items" (
 
 -- CreateTable
 CREATE TABLE "orders" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "id" SERIAL NOT NULL,
     "order_number" TEXT NOT NULL,
     "customer_id" INTEGER,
     "source" TEXT NOT NULL,
@@ -186,12 +201,12 @@ CREATE TABLE "orders" (
     "customer_name" TEXT,
     "customer_phone" TEXT,
     "note" TEXT,
-    "completed_at" DATETIME,
-    "cancelled_at" DATETIME,
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" DATETIME NOT NULL,
-    CONSTRAINT "orders_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT "orders_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    "completed_at" TIMESTAMP(3),
+    "cancelled_at" TIMESTAMP(3),
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "orders_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "orders_source_check" CHECK ("source" IN ('POS','ONLINE')),
     CONSTRAINT "orders_status_check" CHECK ("status" IN ('PENDING','CONFIRMED','PAID','COMPLETED','CANCELLED','REFUNDED')),
     CONSTRAINT "orders_payment_status_check" CHECK ("payment_status" IN ('UNPAID','PAID','REFUNDED')),
@@ -203,7 +218,7 @@ CREATE TABLE "orders" (
 
 -- CreateTable
 CREATE TABLE "order_items" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "id" SERIAL NOT NULL,
     "order_id" INTEGER NOT NULL,
     "variant_id" INTEGER NOT NULL,
     "quantity" INTEGER NOT NULL,
@@ -214,8 +229,8 @@ CREATE TABLE "order_items" (
     "variant_sku" TEXT NOT NULL,
     "color" TEXT NOT NULL,
     "size" TEXT NOT NULL,
-    CONSTRAINT "order_items_order_id_fkey" FOREIGN KEY ("order_id") REFERENCES "orders" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "order_items_variant_id_fkey" FOREIGN KEY ("variant_id") REFERENCES "product_variants" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+
+    CONSTRAINT "order_items_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "oi_quantity_check" CHECK ("quantity" > 0),
     CONSTRAINT "oi_unit_price_check" CHECK ("unit_price_cents" >= 0),
     CONSTRAINT "oi_discount_check" CHECK ("discount_cents" >= 0),
@@ -224,7 +239,7 @@ CREATE TABLE "order_items" (
 
 -- CreateTable
 CREATE TABLE "returns" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "id" SERIAL NOT NULL,
     "return_number" TEXT NOT NULL,
     "order_id" INTEGER NOT NULL,
     "variant_id" INTEGER NOT NULL,
@@ -233,11 +248,10 @@ CREATE TABLE "returns" (
     "status" TEXT NOT NULL DEFAULT 'ACCEPTED',
     "refund_cents" INTEGER NOT NULL DEFAULT 0,
     "created_by" INTEGER,
-    "processed_at" DATETIME,
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "returns_order_id_fkey" FOREIGN KEY ("order_id") REFERENCES "orders" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT "returns_variant_id_fkey" FOREIGN KEY ("variant_id") REFERENCES "product_variants" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT "returns_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    "processed_at" TIMESTAMP(3),
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "returns_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "returns_quantity_check" CHECK ("quantity" > 0),
     CONSTRAINT "returns_status_check" CHECK ("status" IN ('REQUESTED','ACCEPTED','REJECTED')),
     CONSTRAINT "returns_refund_check" CHECK ("refund_cents" >= 0)
@@ -245,29 +259,30 @@ CREATE TABLE "returns" (
 
 -- CreateTable
 CREATE TABLE "carts" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "id" SERIAL NOT NULL,
     "customer_id" INTEGER NOT NULL,
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" DATETIME NOT NULL,
-    CONSTRAINT "carts_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "carts_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "cart_items" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "id" SERIAL NOT NULL,
     "cart_id" INTEGER NOT NULL,
     "variant_id" INTEGER NOT NULL,
     "quantity" INTEGER NOT NULL,
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" DATETIME NOT NULL,
-    CONSTRAINT "cart_items_cart_id_fkey" FOREIGN KEY ("cart_id") REFERENCES "carts" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "cart_items_variant_id_fkey" FOREIGN KEY ("variant_id") REFERENCES "product_variants" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "cart_items_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "cart_items_quantity_check" CHECK ("quantity" > 0)
 );
 
 -- CreateTable
 CREATE TABLE "audit_logs" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "id" SERIAL NOT NULL,
     "user_id" INTEGER,
     "action" TEXT NOT NULL,
     "entity_type" TEXT NOT NULL,
@@ -275,21 +290,26 @@ CREATE TABLE "audit_logs" (
     "old_value" TEXT,
     "new_value" TEXT,
     "ip" TEXT,
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "audit_logs_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "audit_logs_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "settings" (
-    "key" TEXT NOT NULL PRIMARY KEY,
+    "key" TEXT NOT NULL,
     "value" TEXT NOT NULL,
-    "updated_at" DATETIME NOT NULL
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "settings_pkey" PRIMARY KEY ("key")
 );
 
 -- CreateTable
 CREATE TABLE "number_sequences" (
-    "key" TEXT NOT NULL PRIMARY KEY,
+    "key" TEXT NOT NULL,
     "value" INTEGER NOT NULL DEFAULT 0,
+
+    CONSTRAINT "number_sequences_pkey" PRIMARY KEY ("key"),
     CONSTRAINT "number_sequences_value_check" CHECK ("value" >= 0)
 );
 
@@ -457,3 +477,70 @@ CREATE INDEX "audit_logs_action_idx" ON "audit_logs"("action");
 
 -- CreateIndex
 CREATE INDEX "audit_logs_created_at_idx" ON "audit_logs"("created_at");
+
+-- AddForeignKey
+ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "products" ADD CONSTRAINT "products_category_id_fkey" FOREIGN KEY ("category_id") REFERENCES "categories"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "product_variants" ADD CONSTRAINT "product_variants_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "product_images" ADD CONSTRAINT "product_images_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "inventory" ADD CONSTRAINT "inventory_variant_id_fkey" FOREIGN KEY ("variant_id") REFERENCES "product_variants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "inventory_transactions" ADD CONSTRAINT "inventory_transactions_variant_id_fkey" FOREIGN KEY ("variant_id") REFERENCES "product_variants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "inventory_transactions" ADD CONSTRAINT "inventory_transactions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "purchases" ADD CONSTRAINT "purchases_supplier_id_fkey" FOREIGN KEY ("supplier_id") REFERENCES "suppliers"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "purchases" ADD CONSTRAINT "purchases_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "purchase_items" ADD CONSTRAINT "purchase_items_purchase_id_fkey" FOREIGN KEY ("purchase_id") REFERENCES "purchases"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "purchase_items" ADD CONSTRAINT "purchase_items_variant_id_fkey" FOREIGN KEY ("variant_id") REFERENCES "product_variants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "orders" ADD CONSTRAINT "orders_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "orders" ADD CONSTRAINT "orders_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "order_items" ADD CONSTRAINT "order_items_order_id_fkey" FOREIGN KEY ("order_id") REFERENCES "orders"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "order_items" ADD CONSTRAINT "order_items_variant_id_fkey" FOREIGN KEY ("variant_id") REFERENCES "product_variants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "returns" ADD CONSTRAINT "returns_order_id_fkey" FOREIGN KEY ("order_id") REFERENCES "orders"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "returns" ADD CONSTRAINT "returns_variant_id_fkey" FOREIGN KEY ("variant_id") REFERENCES "product_variants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "returns" ADD CONSTRAINT "returns_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "carts" ADD CONSTRAINT "carts_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "cart_items" ADD CONSTRAINT "cart_items_cart_id_fkey" FOREIGN KEY ("cart_id") REFERENCES "carts"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "cart_items" ADD CONSTRAINT "cart_items_variant_id_fkey" FOREIGN KEY ("variant_id") REFERENCES "product_variants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+

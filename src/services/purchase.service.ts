@@ -71,7 +71,7 @@ export const PurchaseService = {
     const where: Prisma.PurchaseWhereInput = {
       ...(params.status ? { status: params.status } : {}),
       ...(params.supplierId ? { supplierId: params.supplierId } : {}),
-      ...(params.search ? { purchaseNumber: { contains: params.search } } : {}),
+      ...(params.search ? { purchaseNumber: { contains: params.search, mode: 'insensitive' as const } } : {}),
       ...(params.from || params.to
         ? {
             createdAt: {

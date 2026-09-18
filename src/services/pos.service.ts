@@ -39,11 +39,11 @@ export const PosService = {
         active: true,
         product: { active: true },
         OR: [
-          { sku: { contains: q.toUpperCase() } },
-          { barcode: { contains: q } },
-          { color: { contains: q } },
-          { product: { name: { contains: q } } },
-          { product: { brand: { contains: q } } },
+          { sku: { contains: q.toUpperCase(), mode: 'insensitive' as const } },
+          { barcode: { contains: q, mode: 'insensitive' as const } },
+          { color: { contains: q, mode: 'insensitive' as const } },
+          { product: { name: { contains: q, mode: 'insensitive' as const } } },
+          { product: { brand: { contains: q, mode: 'insensitive' as const } } },
         ],
       },
       take,
@@ -178,10 +178,13 @@ export const PosService = {
 
       assertTransition(existing.status as OrderStatus, 'COMPLETED');
 
-      await commitStock(tx, id, actor);
-
-      await tx.order.update({
-        where: { id },
+      // Claim the transition atomically rather than trusting the read above. Under
+      // PostgreSQL's READ COMMITTED both of two concurrent requests can observe the
+      // ticket as PENDING, so only a conditional UPDATE — which matches zero rows for
+      // the loser — actually serialises them. Mirrors how commitStock claims
+      // stockCommitted. (SQLite hid this by serialising writers itself.)
+      const claimed = await tx.order.updateMany({
+        where: { id, status: { not: 'COMPLETED' } },
         data: {
           status: 'COMPLETED',
           paymentStatus: 'PAID',
@@ -190,6 +193,9 @@ export const PosService = {
           ...(input.note ? { note: input.note } : {}),
         },
       });
+      if (claimed.count === 0) throw new AppError('ORDER_ALREADY_COMPLETED');
+
+      await commitStock(tx, id, actor);
 
       return tx.order.findUniqueOrThrow({ where: { id }, include: ORDER_INCLUDE });
     });

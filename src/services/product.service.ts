@@ -53,7 +53,7 @@ function buildProductWhere(p: ProductSearchParams, publicOnly: boolean): Prisma.
     ...(publicOnly ? { active: true } : {}),
     ...(p.color ? { color: { equals: p.color } } : {}),
     ...(p.size ? { size: { equals: p.size } } : {}),
-    ...(p.sku ? { sku: { contains: p.sku } } : {}),
+    ...(p.sku ? { sku: { contains: p.sku, mode: 'insensitive' as const } } : {}),
     ...(p.barcode ? { barcode: p.barcode } : {}),
     ...(p.minPrice !== undefined || p.maxPrice !== undefined
       ? {
@@ -71,15 +71,15 @@ function buildProductWhere(p: ProductSearchParams, publicOnly: boolean): Prisma.
     ...(publicOnly ? { active: true, category: { active: true } } : {}),
     ...(p.active !== undefined && !publicOnly ? { active: p.active } : {}),
     ...(p.categoryId ? { categoryId: p.categoryId } : {}),
-    ...(p.brand ? { brand: { contains: p.brand } } : {}),
+    ...(p.brand ? { brand: { contains: p.brand, mode: 'insensitive' as const } } : {}),
     ...(p.search
       ? {
           OR: [
-            { name: { contains: p.search } },
-            { description: { contains: p.search } },
-            { brand: { contains: p.search } },
-            { variants: { some: { sku: { contains: p.search } } } },
-            { variants: { some: { barcode: { contains: p.search } } } },
+            { name: { contains: p.search, mode: 'insensitive' as const } },
+            { description: { contains: p.search, mode: 'insensitive' as const } },
+            { brand: { contains: p.search, mode: 'insensitive' as const } },
+            { variants: { some: { sku: { contains: p.search, mode: 'insensitive' as const } } } },
+            { variants: { some: { barcode: { contains: p.search, mode: 'insensitive' as const } } } },
           ],
         }
       : {}),

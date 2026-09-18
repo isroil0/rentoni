@@ -28,7 +28,7 @@ Set these in the Railway service's **Variables** tab.
 | `JWT_ACCESS_SECRET` | 32+ random chars | Boot fails in production if missing or short. |
 | `JWT_REFRESH_SECRET` | 32+ random chars, different from the access secret | As above. |
 | `CORS_ORIGINS` | comma-separated origins of the deployed frontend, e.g. `https://rentoni.uz,https://www.rentoni.uz` | Cross-origin frontend; anything not listed gets 403. No trailing slashes — an origin is scheme+host+port only. |
-| `DATABASE_URL` | `file:/data/prod.db` (see volume below) | Defaults to `file:./dev.db`, which lives on ephemeral disk. |
+| `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` | Reference the Postgres service so the app uses Railway's internal network. A `file:` URL is now rejected outright. |
 | `SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD` | real values | These have *development fallbacks* (`admin@rentoni.test` / `Admin@12345`). Override them before seeding. |
 | `ADMIN_SETUP_TOKEN` | a long random string | Required by `POST /api/auth/bootstrap-admin`, which creates the first SUPER_ADMIN. Clear it once the account exists. |
 
@@ -36,19 +36,18 @@ Generate secrets with `openssl rand -hex 32`.
 
 `PORT` is injected by Railway; do not set it.
 
-## SQLite needs a volume
+## Database: PostgreSQL
 
-Railway's container filesystem is **ephemeral** — it is wiped on every deploy and
-restart. Without a volume, every product, order and customer is lost on the next
-push, and the schema is silently recreated empty.
+The app targets PostgreSQL. Add a Postgres service in Railway, then set the API
+service's `DATABASE_URL` to `${{Postgres.DATABASE_URL}}` — the reference form, so
+traffic stays on the internal network instead of going out through the public
+proxy.
 
-1. Service → **Settings → Volumes → New Volume**, mount path `/data`.
-2. Set `DATABASE_URL=file:/data/prod.db`.
-3. Redeploy.
+No volume is needed. Postgres persists on its own, which is what replaced the
+old SQLite-on-ephemeral-disk arrangement.
 
-If the store is going to carry real sales data, move to Postgres instead —
-Railway provisions one in a click. That is a schema-provider change in
-`prisma/schema.prisma` plus regenerated migrations, not a drop-in swap.
+`npm start` runs `prisma migrate deploy` before booting, so a fresh Postgres is
+migrated automatically on first deploy.
 
 ## Creating the first admin
 

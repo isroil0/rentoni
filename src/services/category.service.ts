@@ -11,7 +11,7 @@ export const CategoryService = {
   async list(params: { skip: number; take: number; search?: string; active?: boolean }) {
     const where = {
       ...(params.active !== undefined ? { active: params.active } : {}),
-      ...(params.search ? { name: { contains: params.search } } : {}),
+      ...(params.search ? { name: { contains: params.search, mode: 'insensitive' as const } } : {}),
     };
     const [items, total] = await Promise.all([
       prisma.category.findMany({

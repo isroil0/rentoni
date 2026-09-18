@@ -248,10 +248,10 @@ export const InventoryService = {
       ...(params.search
         ? {
             OR: [
-              { sku: { contains: params.search } },
-              { barcode: { contains: params.search } },
-              { color: { contains: params.search } },
-              { product: { name: { contains: params.search } } },
+              { sku: { contains: params.search, mode: 'insensitive' as const } },
+              { barcode: { contains: params.search, mode: 'insensitive' as const } },
+              { color: { contains: params.search, mode: 'insensitive' as const } },
+              { product: { name: { contains: params.search, mode: 'insensitive' as const } } },
             ],
           }
         : {}),
@@ -355,7 +355,7 @@ export const InventoryService = {
         FROM product_variants v
         JOIN inventory i ON i.variant_id = v.id
         JOIN products p ON p.id = v.product_id
-       WHERE v.active = 1 AND i.quantity <= v.minimum_stock
+       WHERE v.active = true AND i.quantity <= v.minimum_stock
        ORDER BY i.quantity ASC, v.id ASC
     `;
 
