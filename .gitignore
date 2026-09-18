@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.log
+.env
+.env.*.local
+prisma/*.db
+prisma/*.db-journal
+prisma/*.db-shm
+prisma/*.db-wal
+.tmp/
+coverage/
+.ui-shots/
+*.tsbuildinfo
+.DS_Store

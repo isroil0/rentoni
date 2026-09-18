@@ -1,0 +1,122 @@
+@import 'tailwindcss';
+
+/**
+ * Design tokens.
+ *
+ * A deliberately small system: a neutral scale, one brand accent, and a handful of
+ * semantic status colours. Small radii, hairline borders, minimal shadow — this is a
+ * business application, so legibility beats decoration.
+ */
+@theme {
+  --color-ink-50: #f7f7f8;
+  --color-ink-100: #eeeef0;
+  --color-ink-200: #e0e0e4;
+  --color-ink-300: #c7c7ce;
+  --color-ink-400: #9a9aa5;
+  --color-ink-500: #71717f;
+  --color-ink-600: #52525f;
+  --color-ink-700: #3f3f4a;
+  --color-ink-800: #27272e;
+  --color-ink-900: #18181d;
+
+  /* Single brand accent: a deep indigo that reads as "menswear" without shouting. */
+  --color-brand-50: #eef2ff;
+  --color-brand-100: #e0e7ff;
+  --color-brand-200: #c7d2fe;
+  --color-brand-500: #4f56d4;
+  --color-brand-600: #3f45b8;
+  --color-brand-700: #343a99;
+
+  --color-success-50: #ecfdf5;
+  --color-success-200: #a7f3d0;
+  --color-success-700: #047857;
+  --color-warn-50: #fffbeb;
+  --color-warn-200: #fde68a;
+  --color-warn-700: #b45309;
+  --color-danger-50: #fef2f2;
+  --color-danger-200: #fecaca;
+  --color-danger-500: #dc2626;
+  --color-danger-600: #c81e1e;
+  --color-danger-700: #b91c1c;
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-white text-ink-900 font-sans antialiased;
+    /* 15px base: comfortably readable, never "tiny text". */
+    font-size: 0.9375rem;
+    line-height: 1.55;
+  }
+
+  /* A single, always-visible focus treatment across the whole app. */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-brand-500;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-semibold tracking-tight text-ink-900;
+  }
+
+  th {
+    @apply text-left font-medium;
+  }
+
+  /* Hide number-input spinners: quantity and price fields use explicit controls. */
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+}
+
+@layer utilities {
+  /* Skip link: visible only once focused. */
+  .skip-link {
+    @apply sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50
+           focus:rounded-md focus:bg-ink-900 focus:px-4 focus:py-2 focus:text-white;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/**
+ * Print: the POS receipt is the only thing worth putting on paper. Everything else is
+ * hidden so "Print receipt" produces a receipt, not a screenshot of the dashboard.
+ */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  #receipt,
+  #receipt * {
+    visibility: visible;
+  }
+
+  #receipt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-width: none;
+    padding: 0.5rem;
+  }
+}

@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.ui-shots/
+*.tsbuildinfo
+*.local
+.DS_Store

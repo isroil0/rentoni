@@ -1,0 +1,1644 @@
+openapi: 3.0.3
+info:
+  title: Rentoni — Men's Shirt POS + Inventory API
+  version: 1.0.0
+  description: |
+    Backend for a men's shirt retail business: point of sale, warehouse/inventory,
+    purchasing, online storefront orders and returns.
+
+    ## Roles
+    There are exactly two roles. POS and Warehouse are **features** inside the
+    SUPER_ADMIN dashboard, not separate roles.
+
+    | Role | Access |
+    |------|--------|
+    | `SUPER_ADMIN` | Everything under `/api/admin/**` — catalogue, inventory, POS, purchases, orders, returns, customers, reports, settings, audit logs. |
+    | `CUSTOMER` | Public catalogue, plus `/api/customer/**` scoped strictly to their own profile, cart, orders and returns. |
+
+    Public self-registration always creates a `CUSTOMER`; `role` is not an accepted
+    request field anywhere. The first `SUPER_ADMIN` is created by the seed script or by
+    `POST /api/auth/bootstrap-admin`, which requires the out-of-band `ADMIN_SETUP_TOKEN`
+    and refuses to run once a `SUPER_ADMIN` exists.
+
+    ## Authentication
+    Bearer JWT access tokens plus opaque, rotating refresh tokens. Each access token
+    carries a session id that is verified against the database on every request, so
+    logout and account deactivation take effect immediately.
+
+    ```
+    Authorization: Bearer <accessToken>
+    ```
+
+    ## Response envelope
+    Success: `{ "success": true, "data": ..., "meta": { ... } }`
+    Failure: `{ "success": false, "error": { "code": "...", "message": "...", "details": ... } }`
+
+    ## Money
+    All monetary values are decimal numbers in major units (e.g. `30`, `30.5`).
+    They are stored internally as integer cents.
+
+    ## Inventory behaviour
+    Stock is only ever changed by one centralised service, and every change writes an
+    immutable `InventoryTransaction` row recording `previousQuantity`, the signed
+    `quantity` delta and `newQuantity`.
+
+    | Trigger | Transaction type | Effect |
+    |---------|------------------|--------|
+    | Purchase received | `PURCHASE` | + |
+    | Sale (POS complete / online order created) | `SALE` | − |
+    | Return accepted | `RETURN` | + |
+    | Order cancelled (restock) | `ADJUSTMENT_IN` | + |
+    | Manual adjustment | `ADJUSTMENT_IN` / `ADJUSTMENT_OUT` | ± |
+    | Damaged goods | `DAMAGE` | − |
+
+    Stock can never go negative: the decrement is a single atomic guarded `UPDATE`
+    (`... WHERE variant_id = ? AND quantity + delta >= 0`) inside a transaction, backed
+    by a database `CHECK (quantity >= 0)` constraint. Concurrent buyers of the last unit
+    cannot both succeed — one receives `INSUFFICIENT_STOCK`.
+
+    Stock status: `quantity = 0` → `OUT_OF_STOCK`; `quantity <= minimumStock` →
+    `LOW_STOCK`; otherwise `IN_STOCK`.
+
+    ## Order status transitions
+    ```
+    PENDING   → CONFIRMED, PAID, COMPLETED, CANCELLED
+    CONFIRMED → PAID, COMPLETED, CANCELLED
+    PAID      → COMPLETED, CANCELLED, REFUNDED
+    COMPLETED → REFUNDED, CANCELLED   (CANCELLED = voiding a sale; restores stock)
+    CANCELLED → (terminal)
+    REFUNDED  → (terminal)
+    ```
+    Anything else returns `INVALID_STATUS_TRANSITION`. Cancelling restores stock exactly
+    once, and is refused when returns already exist against the order.
+
+servers:
+  - url: http://localhost:4000/api
+    description: Local development
+
+tags:
+  - name: Auth
+    description: Registration, login, logout, session and admin bootstrap
+  - name: Public catalogue
+    description: Unauthenticated storefront endpoints (no cost prices)
+  - name: Customer
+    description: Authenticated CUSTOMER self-service
+  - name: Admin — Catalogue
+  - name: Admin — Inventory
+  - name: Admin — POS
+  - name: Admin — Orders
+  - name: Admin — Purchasing
+  - name: Admin — Returns
+  - name: Admin — Customers
+  - name: Admin — Reports
+  - name: Admin — System
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    id:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    preset:
+      name: preset
+      in: query
+      description: Named reporting window. Ignored when `from`/`to` are supplied.
+      schema: { type: string, enum: [today, week, month, year] }
+    from:
+      name: from
+      in: query
+      schema: { type: string, example: '2026-09-01' }
+    to:
+      name: to
+      in: query
+      schema: { type: string, example: '2026-09-30' }
+    hard:
+      name: hard
+      in: query
+      description: Permanently delete instead of deactivating. Refused when history exists.
+      schema: { type: boolean, default: false }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        success: { type: boolean, example: false }
+        error:
+          type: object
+          properties:
+            code: { type: string, example: INSUFFICIENT_STOCK }
+            message: { type: string, example: Not enough stock for this product variant. }
+            details: { description: Optional machine-readable context }
+      example:
+        success: false
+        error:
+          code: INSUFFICIENT_STOCK
+          message: Not enough stock for this product variant.
+          details: { variantId: 12, sku: OXF-W-M, available: 2, requested: 5 }
+
+    PaginationMeta:
+      type: object
+      properties:
+        page: { type: integer }
+        limit: { type: integer }
+        total: { type: integer }
+        totalPages: { type: integer }
+        hasNext: { type: boolean }
+        hasPrev: { type: boolean }
+
+    User:
+      type: object
+      description: A user as returned by the API. The password hash is never included.
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string, nullable: true }
+        role: { type: string, enum: [SUPER_ADMIN, CUSTOMER] }
+        active: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    AuthResult:
+      type: object
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        expiresAt: { type: string, format: date-time }
+
+    StockStatus:
+      type: string
+      enum: [IN_STOCK, LOW_STOCK, OUT_OF_STOCK]
+
+    AdminVariant:
+      type: object
+      properties:
+        id: { type: integer }
+        productId: { type: integer }
+        sku: { type: string, example: OXF-W-M }
+        barcode: { type: string, nullable: true }
+        color: { type: string, example: White }
+        size: { type: string, example: M }
+        costPrice: { type: number, example: 18 }
+        sellingPrice: { type: number, example: 30 }
+        marginPerUnit: { type: number, example: 12 }
+        minimumStock: { type: integer, example: 5 }
+        active: { type: boolean }
+        quantity: { type: integer, example: 20 }
+        stockStatus: { $ref: '#/components/schemas/StockStatus' }
+
+    CustomerVariant:
+      type: object
+      description: Customer-facing variant. Cost price and margin are never present.
+      properties:
+        id: { type: integer }
+        sku: { type: string }
+        color: { type: string }
+        size: { type: string }
+        price: { type: number, example: 30 }
+        availability: { $ref: '#/components/schemas/StockStatus' }
+        inStock: { type: boolean }
+        quantity:
+          type: integer
+          description: Present only when the `customer.expose_exact_stock` setting is "true".
+
+    CustomerProduct:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string, example: Oxford Classic Shirt }
+        description: { type: string, nullable: true }
+        brand: { type: string, nullable: true }
+        category:
+          type: object
+          properties: { id: { type: integer }, name: { type: string } }
+        images:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: integer }
+              url: { type: string }
+              altText: { type: string, nullable: true }
+              isPrimary: { type: boolean }
+              sortOrder: { type: integer }
+        colors: { type: array, items: { type: string }, example: [White, Black, Blue] }
+        sizes: { type: array, items: { type: string }, example: [S, M, L, XL] }
+        priceFrom: { type: number, nullable: true }
+        priceTo: { type: number, nullable: true }
+        availability: { $ref: '#/components/schemas/StockStatus' }
+        variants: { type: array, items: { $ref: '#/components/schemas/CustomerVariant' } }
+
+    AdminProduct:
+      type: object
+      properties:
+        id: { type: integer }
+        categoryId: { type: integer }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        brand: { type: string, nullable: true }
+        active: { type: boolean }
+        images: { type: array, items: { type: object } }
+        variants: { type: array, items: { $ref: '#/components/schemas/AdminVariant' } }
+        variantCount: { type: integer }
+        totalStock: { type: integer }
+
+    VariantInput:
+      type: object
+      required: [sku, color, size, costPrice, sellingPrice]
+      properties:
+        sku: { type: string, example: OXF-W-M, description: 'Unique across the whole catalogue.' }
+        barcode: { type: string, nullable: true, description: 'Unique when provided.' }
+        color: { type: string, example: White }
+        size: { type: string, example: M }
+        costPrice: { type: number, minimum: 0, example: 18 }
+        sellingPrice: { type: number, minimum: 0, example: 30 }
+        minimumStock: { type: integer, minimum: 0, example: 5 }
+        active: { type: boolean, default: true }
+        initialStock:
+          type: integer
+          minimum: 0
+          description: Opening stock, recorded as an ADJUSTMENT_IN inventory transaction.
+
+    OrderLine:
+      type: object
+      description: >-
+        Identify the variant by id, SKU or barcode. Prices are never accepted from the
+        client — the server prices every line from the database.
+      required: [quantity]
+      properties:
+        variantId: { type: integer }
+        sku: { type: string }
+        barcode: { type: string }
+        quantity: { type: integer, minimum: 1 }
+        discount: { type: number, minimum: 0, description: 'Absolute per-line discount (admin/POS only).' }
+
+    OrderItem:
+      type: object
+      properties:
+        id: { type: integer }
+        variantId: { type: integer }
+        productName: { type: string }
+        sku: { type: string }
+        color: { type: string }
+        size: { type: string }
+        quantity: { type: integer }
+        unitPrice:
+          type: number
+          description: Price snapshot taken when the order was created; never re-read from the variant.
+        discount: { type: number }
+        total: { type: number }
+
+    Order:
+      type: object
+      properties:
+        id: { type: integer }
+        orderNumber: { type: string, example: POS-20260917-00001 }
+        source: { type: string, enum: [POS, ONLINE] }
+        status: { type: string, enum: [PENDING, CONFIRMED, PAID, COMPLETED, CANCELLED, REFUNDED] }
+        subtotal: { type: number, example: 60 }
+        discount: { type: number, example: 0 }
+        total: { type: number, example: 60 }
+        paymentStatus: { type: string, enum: [UNPAID, PAID, REFUNDED] }
+        paymentMethod: { type: string, enum: [CASH, CARD, OTHER], nullable: true }
+        note: { type: string, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
+        cancelledAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        items: { type: array, items: { $ref: '#/components/schemas/OrderItem' } }
+        itemCount: { type: integer }
+        customerId: { type: integer, nullable: true, description: 'Admin projection only.' }
+        stockCommitted: { type: boolean, description: 'Admin projection only.' }
+
+    InventoryTransaction:
+      type: object
+      properties:
+        id: { type: integer }
+        variantId: { type: integer }
+        type:
+          type: string
+          enum: [PURCHASE, SALE, RETURN, ADJUSTMENT_IN, ADJUSTMENT_OUT, DAMAGE]
+        quantity: { type: integer, description: 'Signed delta: positive in, negative out.', example: -2 }
+        previousQuantity: { type: integer, example: 25 }
+        newQuantity: { type: integer, example: 23 }
+        referenceType:
+          type: string
+          nullable: true
+          enum: [PURCHASE, ORDER, RETURN, ORDER_CANCELLATION, MANUAL]
+        referenceId: { type: integer, nullable: true }
+        userId: { type: integer, nullable: true }
+        note: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    Purchase:
+      type: object
+      properties:
+        id: { type: integer }
+        purchaseNumber: { type: string, example: PO-20260917-00001 }
+        supplierId: { type: integer }
+        status: { type: string, enum: [DRAFT, RECEIVED, CANCELLED] }
+        totalCost: { type: number }
+        receivedAt: { type: string, format: date-time, nullable: true }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              variantId: { type: integer }
+              sku: { type: string }
+              quantity: { type: integer }
+              unitCost: { type: number }
+              total: { type: number }
+
+    Return:
+      type: object
+      properties:
+        id: { type: integer }
+        returnNumber: { type: string, example: RET-20260917-00001 }
+        orderId: { type: integer }
+        orderNumber: { type: string }
+        variantId: { type: integer }
+        sku: { type: string }
+        quantity: { type: integer }
+        reason: { type: string, nullable: true }
+        status:
+          type: string
+          enum: [REQUESTED, ACCEPTED, REJECTED]
+          description: >-
+            Admin-created returns default to ACCEPTED and restock immediately.
+            Customer-created returns start as REQUESTED and only move stock on acceptance.
+        refundAmount: { type: number }
+        createdAt: { type: string, format: date-time }
+
+  responses:
+    BadRequest:
+      description: Malformed request
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Unauthorized:
+      description: Missing, invalid or revoked token (`UNAUTHENTICATED`, `INVALID_TOKEN`, `SESSION_EXPIRED`)
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Forbidden:
+      description: Authenticated but not permitted (`FORBIDDEN`, `ACCOUNT_INACTIVE`)
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    NotFound:
+      description: Resource not found
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Conflict:
+      description: Conflicts with current state (`INSUFFICIENT_STOCK`, `DUPLICATE_SKU`, `INVALID_STATUS_TRANSITION`, …)
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    ValidationError:
+      description: Input validation failed (`VALIDATION_ERROR`)
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    RateLimited:
+      description: Too many requests (`RATE_LIMITED`)
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Busy:
+      description: Transient database contention after retries (`SERVICE_BUSY`) — safe to retry
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+paths:
+  /health:
+    get:
+      tags: [Admin — System]
+      summary: Liveness probe that also verifies database connectivity
+      security: []
+      responses: { '200': { description: OK } }
+
+  # ---------------------------------------------------------------- Auth ----
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a customer account
+      description: Always creates a `CUSTOMER`. `role` is not an accepted field.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name: { type: string, minLength: 2 }
+                email: { type: string, format: email }
+                phone: { type: string }
+                password:
+                  type: string
+                  minLength: 8
+                  description: At least 8 characters, containing a letter and a digit.
+      responses:
+        '201':
+          description: Registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { $ref: '#/components/schemas/AuthResult' }
+        '409': { description: 'Email already registered (`EMAIL_ALREADY_EXISTS`)' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { $ref: '#/components/schemas/AuthResult' }
+        '401': { description: '`INVALID_CREDENTIALS`' }
+        '403': { description: '`ACCOUNT_INACTIVE`' }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Exchange a refresh token for a new session
+      description: The presented refresh token is revoked; replaying it fails.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties: { refreshToken: { type: string } }
+      responses:
+        '200': { description: Rotated }
+        '401': { description: '`SESSION_EXPIRED`' }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke the current session
+      responses: { '200': { description: Logged out }, '401': { $ref: '#/components/responses/Unauthorized' } }
+
+  /auth/logout-all:
+    post:
+      tags: [Auth]
+      summary: Revoke every session for the current user
+      responses: { '200': { description: All sessions revoked } }
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Current authenticated user
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/sessions:
+    get:
+      tags: [Auth]
+      summary: List the current user's active sessions
+      responses: { '200': { description: OK } }
+
+  /auth/change-password:
+    post:
+      tags: [Auth]
+      summary: Change password (revokes all sessions)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: { type: string }
+                newPassword: { type: string, minLength: 8 }
+      responses: { '200': { description: Changed }, '401': { description: '`INVALID_CREDENTIALS`' } }
+
+  /auth/bootstrap-admin:
+    post:
+      tags: [Auth]
+      summary: Create the first SUPER_ADMIN (one time only)
+      description: >-
+        Requires the out-of-band `ADMIN_SETUP_TOKEN` from the server environment and
+        refuses to run once any SUPER_ADMIN exists.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password, setupToken]
+              properties:
+                name: { type: string }
+                email: { type: string, format: email }
+                phone: { type: string }
+                password: { type: string, minLength: 8 }
+                setupToken: { type: string }
+      responses:
+        '201': { description: Created }
+        '403': { description: 'Invalid or disabled setup token (`FORBIDDEN`)' }
+        '409': { description: '`SETUP_ALREADY_COMPLETE`' }
+
+  # ------------------------------------------------------ Public catalogue ----
+  /products:
+    get:
+      tags: [Public catalogue]
+      summary: Browse and search shirts
+      description: >-
+        Active products in active categories only. Cost price, supplier data and
+        inventory internals are never returned. Exact stock appears only when the
+        `customer.expose_exact_stock` setting is enabled.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - { name: search, in: query, schema: { type: string }, description: 'Name, description, brand, SKU or barcode' }
+        - { name: categoryId, in: query, schema: { type: integer } }
+        - { name: brand, in: query, schema: { type: string } }
+        - { name: color, in: query, schema: { type: string, example: White } }
+        - { name: size, in: query, schema: { type: string, example: M } }
+        - { name: sku, in: query, schema: { type: string } }
+        - { name: barcode, in: query, schema: { type: string } }
+        - { name: minPrice, in: query, schema: { type: number } }
+        - { name: maxPrice, in: query, schema: { type: number } }
+        - { name: availability, in: query, schema: { $ref: '#/components/schemas/StockStatus' } }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [newest, oldest, name_asc, name_desc, price_asc, price_desc] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { type: array, items: { $ref: '#/components/schemas/CustomerProduct' } }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+
+  /products/{id}:
+    get:
+      tags: [Public catalogue]
+      summary: Product detail with colours, sizes, prices and availability
+      security: []
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { $ref: '#/components/schemas/CustomerProduct' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /categories:
+    get:
+      tags: [Public catalogue]
+      summary: Active categories with product counts
+      security: []
+      responses: { '200': { description: OK } }
+
+  # -------------------------------------------------------------- Customer ----
+  /customer/profile:
+    get:
+      tags: [Customer]
+      summary: Own profile
+      responses: { '200': { description: OK }, '403': { $ref: '#/components/responses/Forbidden' } }
+    put:
+      tags: [Customer]
+      summary: Update own profile
+      description: Only name, phone and email are editable. `role` and `active` are rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                phone: { type: string, nullable: true }
+                email: { type: string, format: email }
+      responses: { '200': { description: Updated }, '422': { $ref: '#/components/responses/ValidationError' } }
+
+  /customer/cart:
+    get:
+      tags: [Customer]
+      summary: Own cart, priced and stock-checked server-side
+      responses: { '200': { description: OK } }
+    delete:
+      tags: [Customer]
+      summary: Empty the cart
+      responses: { '200': { description: Cleared } }
+
+  /customer/cart/items:
+    post:
+      tags: [Customer]
+      summary: Add a variant to the cart
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [variantId, quantity]
+              properties:
+                variantId: { type: integer }
+                quantity: { type: integer, minimum: 1 }
+      responses: { '201': { description: Added }, '404': { $ref: '#/components/responses/NotFound' } }
+
+  /customer/cart/items/{variantId}:
+    patch:
+      tags: [Customer]
+      summary: Set a cart line quantity (0 removes it)
+      parameters: [{ name: variantId, in: path, required: true, schema: { type: integer } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quantity]
+              properties: { quantity: { type: integer, minimum: 0 } }
+      responses: { '200': { description: Updated } }
+    delete:
+      tags: [Customer]
+      summary: Remove a cart line
+      parameters: [{ name: variantId, in: path, required: true, schema: { type: integer } }]
+      responses: { '200': { description: Removed } }
+
+  /customer/orders:
+    post:
+      tags: [Customer]
+      summary: Place an online order
+      description: |
+        The backend validates every variant, checks stock, prices each line from the
+        database and computes subtotal, discount and total. Prices, totals, stock and
+        discounts sent by the client are rejected outright.
+
+        Stock is deducted inside the same transaction that creates the order, so a
+        shortfall on any line rolls the entire order back.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required: [variantId, quantity]
+                    properties:
+                      variantId: { type: integer }
+                      quantity: { type: integer, minimum: 1 }
+                fromCart: { type: boolean, description: 'Check out the saved cart instead of `items`.' }
+                paymentMethod: { type: string, enum: [CASH, CARD, OTHER] }
+                note: { type: string }
+                shippingPhone: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { $ref: '#/components/schemas/Order' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/Busy' }
+    get:
+      tags: [Customer]
+      summary: List own orders
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - { name: status, in: query, schema: { type: string } }
+      responses: { '200': { description: OK } }
+
+  /customer/orders/{id}:
+    get:
+      tags: [Customer]
+      summary: Get one of your own orders
+      description: Another customer's order id returns 404, not 403.
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: OK }, '404': { $ref: '#/components/responses/NotFound' } }
+
+  /customer/orders/{id}/cancel:
+    post:
+      tags: [Customer]
+      summary: Cancel an eligible own order
+      description: >-
+        Allowed while the order is PENDING/CONFIRMED/PAID and within the configured
+        cancellation window. Restores stock and writes an ADJUSTMENT_IN transaction.
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { reason: { type: string } } } } }
+      responses:
+        '200': { description: Cancelled }
+        '409': { description: '`ORDER_NOT_CANCELLABLE` or `CANCEL_WINDOW_EXPIRED`' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /customer/orders/{orderId}/return-eligibility:
+    get:
+      tags: [Customer]
+      summary: How much of an own order can still be returned
+      parameters: [{ name: orderId, in: path, required: true, schema: { type: integer } }]
+      responses: { '200': { description: OK } }
+
+  /customer/returns:
+    post:
+      tags: [Customer]
+      summary: Request a return on an own order
+      description: >-
+        Creates REQUESTED return lines. Stock only moves once an admin accepts them.
+        Quantity may not exceed what remains eligible on the order.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderId, items]
+              properties:
+                orderId: { type: integer }
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required: [variantId, quantity]
+                    properties:
+                      variantId: { type: integer }
+                      quantity: { type: integer, minimum: 1 }
+                      reason: { type: string }
+                reason: { type: string }
+      responses:
+        '201':
+          description: Requested
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { type: array, items: { $ref: '#/components/schemas/Return' } }
+        '409': { description: '`ORDER_NOT_RETURNABLE` or `RETURN_WINDOW_EXPIRED`' }
+        '422': { description: '`INVALID_RETURN_QUANTITY` or `ITEM_NOT_IN_ORDER`' }
+    get:
+      tags: [Customer]
+      summary: List own returns
+      parameters: [{ $ref: '#/components/parameters/page' }, { $ref: '#/components/parameters/limit' }]
+      responses: { '200': { description: OK } }
+
+  /customer/returns/{id}:
+    get:
+      tags: [Customer]
+      summary: Get one of your own returns
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: OK }, '404': { $ref: '#/components/responses/NotFound' } }
+
+  # ------------------------------------------------------ Admin — Catalogue ----
+  /admin/categories:
+    get:
+      tags: [Admin — Catalogue]
+      summary: List categories
+      parameters: [{ $ref: '#/components/parameters/page' }, { $ref: '#/components/parameters/limit' }]
+      responses: { '200': { description: OK }, '403': { $ref: '#/components/responses/Forbidden' } }
+    post:
+      tags: [Admin — Catalogue]
+      summary: Create a category
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                description: { type: string, nullable: true }
+                active: { type: boolean }
+      responses: { '201': { description: Created }, '409': { description: '`CATEGORY_NAME_EXISTS`' } }
+
+  /admin/categories/{id}:
+    get:
+      tags: [Admin — Catalogue]
+      summary: Get a category
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: OK } }
+    put:
+      tags: [Admin — Catalogue]
+      summary: Update a category
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object } } } }
+      responses: { '200': { description: Updated } }
+    delete:
+      tags: [Admin — Catalogue]
+      summary: Deactivate (or hard-delete) a category
+      parameters: [{ $ref: '#/components/parameters/id' }, { $ref: '#/components/parameters/hard' }]
+      responses: { '200': { description: Deleted }, '409': { description: '`CATEGORY_HAS_PRODUCTS`' } }
+
+  /admin/products:
+    get:
+      tags: [Admin — Catalogue]
+      summary: List products with full variant and stock detail
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - { name: search, in: query, schema: { type: string } }
+        - { name: categoryId, in: query, schema: { type: integer } }
+        - { name: color, in: query, schema: { type: string } }
+        - { name: size, in: query, schema: { type: string } }
+        - { name: availability, in: query, schema: { $ref: '#/components/schemas/StockStatus' } }
+        - { name: active, in: query, schema: { type: boolean } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { type: array, items: { $ref: '#/components/schemas/AdminProduct' } }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+    post:
+      tags: [Admin — Catalogue]
+      summary: Create a product, optionally with its whole variant matrix
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [categoryId, name]
+              properties:
+                categoryId: { type: integer }
+                name: { type: string }
+                description: { type: string, nullable: true }
+                brand: { type: string, nullable: true }
+                active: { type: boolean }
+                images:
+                  type: array
+                  items:
+                    type: object
+                    required: [url]
+                    properties:
+                      url: { type: string, format: uri }
+                      altText: { type: string, nullable: true }
+                      sortOrder: { type: integer }
+                      isPrimary: { type: boolean }
+                variants: { type: array, items: { $ref: '#/components/schemas/VariantInput' } }
+            example:
+              categoryId: 1
+              name: Oxford Classic Shirt
+              brand: Rentoni
+              variants:
+                - { sku: OXF-W-M, color: White, size: M, costPrice: 18, sellingPrice: 30, minimumStock: 5, initialStock: 20 }
+      responses:
+        '201': { description: Created }
+        '409': { description: '`DUPLICATE_SKU`, `DUPLICATE_BARCODE` or `DUPLICATE_VARIANT`' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /admin/products/{id}:
+    get:
+      tags: [Admin — Catalogue]
+      summary: Get a product
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: OK }, '404': { $ref: '#/components/responses/NotFound' } }
+    put:
+      tags: [Admin — Catalogue]
+      summary: Update a product
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object } } } }
+      responses: { '200': { description: Updated } }
+    delete:
+      tags: [Admin — Catalogue]
+      summary: Deactivate a product (hard delete refused once it has history)
+      parameters: [{ $ref: '#/components/parameters/id' }, { $ref: '#/components/parameters/hard' }]
+      responses: { '200': { description: Deleted }, '409': { $ref: '#/components/responses/Conflict' } }
+
+  /admin/products/{id}/images:
+    post:
+      tags: [Admin — Catalogue]
+      summary: Attach images (URLs; binaries are not stored in the database)
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [images]
+              properties: { images: { type: array, items: { type: object } } }
+      responses: { '201': { description: Added } }
+
+  /admin/products/{id}/images/{imageId}:
+    delete:
+      tags: [Admin — Catalogue]
+      summary: Remove an image
+      parameters:
+        - $ref: '#/components/parameters/id'
+        - { name: imageId, in: path, required: true, schema: { type: integer } }
+      responses: { '200': { description: Removed } }
+
+  /admin/products/{id}/images/{imageId}/primary:
+    post:
+      tags: [Admin — Catalogue]
+      summary: Make an image the primary one
+      parameters:
+        - $ref: '#/components/parameters/id'
+        - { name: imageId, in: path, required: true, schema: { type: integer } }
+      responses: { '200': { description: Updated } }
+
+  /admin/products/{id}/variants:
+    post:
+      tags: [Admin — Catalogue]
+      summary: Add a variant to a product
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/VariantInput' } } }
+      responses: { '201': { description: Created }, '409': { $ref: '#/components/responses/Conflict' } }
+
+  /admin/variants:
+    get:
+      tags: [Admin — Catalogue]
+      summary: List variants
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - { name: productId, in: query, schema: { type: integer } }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: color, in: query, schema: { type: string } }
+        - { name: size, in: query, schema: { type: string } }
+      responses: { '200': { description: OK } }
+    post:
+      tags: [Admin — Catalogue]
+      summary: Create a variant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/VariantInput'
+                - type: object
+                  required: [productId]
+                  properties: { productId: { type: integer } }
+      responses: { '201': { description: Created }, '409': { $ref: '#/components/responses/Conflict' } }
+
+  /admin/variants/lookup:
+    get:
+      tags: [Admin — Catalogue]
+      summary: Find a variant by exact SKU or barcode (scanner lookup)
+      parameters: [{ name: code, in: query, required: true, schema: { type: string } }]
+      responses: { '200': { description: OK }, '404': { $ref: '#/components/responses/NotFound' } }
+
+  /admin/variants/{id}:
+    get:
+      tags: [Admin — Catalogue]
+      summary: Get a variant
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: OK } }
+    put:
+      tags: [Admin — Catalogue]
+      summary: Update a variant (price changes are audited; history is unaffected)
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object } } } }
+      responses: { '200': { description: Updated }, '409': { $ref: '#/components/responses/Conflict' } }
+    delete:
+      tags: [Admin — Catalogue]
+      summary: Deactivate a variant
+      parameters: [{ $ref: '#/components/parameters/id' }, { $ref: '#/components/parameters/hard' }]
+      responses: { '200': { description: Deleted } }
+
+  # ------------------------------------------------------ Admin — Inventory ----
+  /admin/inventory:
+    get:
+      tags: [Admin — Inventory]
+      summary: Current stock per variant
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - { name: search, in: query, schema: { type: string } }
+        - { name: categoryId, in: query, schema: { type: integer } }
+        - { name: productId, in: query, schema: { type: integer } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/StockStatus' } }
+      responses: { '200': { description: OK } }
+
+  /admin/inventory/low-stock:
+    get:
+      tags: [Admin — Inventory]
+      summary: Variants at or below their minimum stock
+      parameters: [{ $ref: '#/components/parameters/page' }, { $ref: '#/components/parameters/limit' }]
+      responses: { '200': { description: OK } }
+
+  /admin/inventory/out-of-stock:
+    get:
+      tags: [Admin — Inventory]
+      summary: Variants with zero stock
+      parameters: [{ $ref: '#/components/parameters/page' }, { $ref: '#/components/parameters/limit' }]
+      responses: { '200': { description: OK } }
+
+  /admin/inventory/transactions:
+    get:
+      tags: [Admin — Inventory]
+      summary: Full stock movement history
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - { name: variantId, in: query, schema: { type: integer } }
+        - name: type
+          in: query
+          schema: { type: string, enum: [PURCHASE, SALE, RETURN, ADJUSTMENT_IN, ADJUSTMENT_OUT, DAMAGE] }
+        - name: referenceType
+          in: query
+          schema: { type: string, enum: [PURCHASE, ORDER, RETURN, ORDER_CANCELLATION, MANUAL] }
+        - { name: referenceId, in: query, schema: { type: integer } }
+        - $ref: '#/components/parameters/from'
+        - $ref: '#/components/parameters/to'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { type: array, items: { $ref: '#/components/schemas/InventoryTransaction' } }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+
+  /admin/inventory/{variantId}:
+    get:
+      tags: [Admin — Inventory]
+      summary: Stock for one variant
+      parameters: [{ name: variantId, in: path, required: true, schema: { type: integer } }]
+      responses: { '200': { description: OK }, '404': { $ref: '#/components/responses/NotFound' } }
+
+  /admin/inventory/adjust:
+    post:
+      tags: [Admin — Inventory]
+      summary: Adjust stock (relative or absolute)
+      description: >-
+        Supply exactly one of `quantity` (relative, with `type`) or `setQuantity`
+        (absolute). Always writes an inventory transaction and an audit log entry.
+        Never allows the result to go below zero.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [variantId]
+              properties:
+                variantId: { type: integer }
+                type: { type: string, enum: [ADJUSTMENT_IN, ADJUSTMENT_OUT, DAMAGE] }
+                quantity: { type: integer, minimum: 1, description: 'Relative change.' }
+                setQuantity: { type: integer, minimum: 0, description: 'Absolute target.' }
+                note: { type: string }
+            examples:
+              relative: { value: { variantId: 12, type: DAMAGE, quantity: 2, note: Water damage } }
+              absolute: { value: { variantId: 12, setQuantity: 35, note: Stock count correction } }
+      responses:
+        '200': { description: Adjusted }
+        '409': { description: '`INSUFFICIENT_STOCK`' }
+        '422': { description: '`INVALID_ADJUSTMENT` or `VALIDATION_ERROR`' }
+
+  # ------------------------------------------------------------ Admin — POS ----
+  /admin/pos/search:
+    get:
+      tags: [Admin — POS]
+      summary: POS catalogue search by name, SKU, barcode or colour
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, maximum: 50 } }
+      responses: { '200': { description: OK } }
+
+  /admin/pos/quote:
+    post:
+      tags: [Admin — POS]
+      summary: Price the on-screen cart without writing anything
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items: { type: array, items: { $ref: '#/components/schemas/OrderLine' } }
+                discount: { type: number }
+                discountPercent: { type: number, minimum: 0, maximum: 100 }
+      responses: { '200': { description: Quote including per-line stock availability } }
+
+  /admin/pos/orders:
+    post:
+      tags: [Admin — POS]
+      summary: Create a POS sale
+      description: |
+        Without `completeNow` this creates a PENDING ticket and does **not** touch stock.
+        With `completeNow: true` the order, its items, the stock deduction and the
+        inventory transactions are all written inside one database transaction — the
+        normal walk-in counter flow.
+
+        `customerId` is optional: POS sales may be anonymous.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items: { type: array, items: { $ref: '#/components/schemas/OrderLine' } }
+                discount: { type: number }
+                discountPercent: { type: number, minimum: 0, maximum: 100 }
+                customerId: { type: integer, nullable: true }
+                customerName: { type: string, nullable: true }
+                customerPhone: { type: string, nullable: true }
+                paymentMethod: { type: string, enum: [CASH, CARD, OTHER] }
+                note: { type: string }
+                completeNow: { type: boolean }
+            example:
+              items: [{ sku: OXF-W-M, quantity: 2 }]
+              paymentMethod: CASH
+              completeNow: true
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { $ref: '#/components/schemas/Order' }
+        '409': { description: '`INSUFFICIENT_STOCK`, `VARIANT_INACTIVE` or `PRODUCT_INACTIVE`' }
+        '422': { description: '`DISCOUNT_TOO_LARGE` or `VALIDATION_ERROR`' }
+
+  /admin/pos/orders/{id}/complete:
+    post:
+      tags: [Admin — POS]
+      summary: Complete a pending POS ticket
+      description: Deducts stock, records the payment and marks the order COMPLETED — atomically.
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                paymentMethod: { type: string, enum: [CASH, CARD, OTHER] }
+                note: { type: string }
+      responses:
+        '200': { description: Completed }
+        '409': { description: '`ORDER_ALREADY_COMPLETED` or `INSUFFICIENT_STOCK`' }
+
+  /admin/pos/orders/{id}/cancel:
+    post:
+      tags: [Admin — POS]
+      summary: Cancel/void a POS sale, restoring stock if it was deducted
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { reason: { type: string } } } } }
+      responses: { '200': { description: Cancelled }, '409': { description: '`ORDER_NOT_CANCELLABLE`' } }
+
+  /admin/pos/orders/{id}/receipt:
+    get:
+      tags: [Admin — POS]
+      summary: Printable receipt payload
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: OK } }
+
+  # --------------------------------------------------------- Admin — Orders ----
+  /admin/orders:
+    get:
+      tags: [Admin — Orders]
+      summary: List all orders (POS and online)
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - { name: status, in: query, schema: { type: string } }
+        - { name: source, in: query, schema: { type: string, enum: [POS, ONLINE] } }
+        - { name: paymentStatus, in: query, schema: { type: string } }
+        - { name: customerId, in: query, schema: { type: integer } }
+        - { name: search, in: query, schema: { type: string }, description: 'Order number or customer' }
+        - $ref: '#/components/parameters/from'
+        - $ref: '#/components/parameters/to'
+      responses: { '200': { description: OK } }
+
+  /admin/orders/{id}:
+    get:
+      tags: [Admin — Orders]
+      summary: Get an order
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: OK }, '404': { $ref: '#/components/responses/NotFound' } }
+
+  /admin/orders/{id}/cancel:
+    post:
+      tags: [Admin — Orders]
+      summary: Cancel an order and restore its stock
+      description: Refused when returns already exist against the order.
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { reason: { type: string } } } } }
+      responses: { '200': { description: Cancelled }, '409': { description: '`ORDER_NOT_CANCELLABLE`' } }
+
+  /admin/orders/{id}/status:
+    post:
+      tags: [Admin — Orders]
+      summary: Move an order to another status
+      description: Validated against the allowed transition table; applies the stock side-effects each status implies.
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [PENDING, CONFIRMED, PAID, COMPLETED, CANCELLED, REFUNDED] }
+                paymentMethod: { type: string, enum: [CASH, CARD, OTHER] }
+                reason: { type: string }
+      responses:
+        '200': { description: Updated }
+        '409': { description: '`INVALID_STATUS_TRANSITION`' }
+
+  # ----------------------------------------------------- Admin — Purchasing ----
+  /admin/suppliers:
+    get:
+      tags: [Admin — Purchasing]
+      summary: List suppliers
+      parameters: [{ $ref: '#/components/parameters/page' }, { $ref: '#/components/parameters/limit' }]
+      responses: { '200': { description: OK } }
+    post:
+      tags: [Admin — Purchasing]
+      summary: Create a supplier
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                phone: { type: string, nullable: true }
+                address: { type: string, nullable: true }
+                notes: { type: string, nullable: true }
+      responses: { '201': { description: Created } }
+
+  /admin/suppliers/{id}:
+    get:
+      tags: [Admin — Purchasing]
+      summary: Get a supplier
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: OK } }
+    put:
+      tags: [Admin — Purchasing]
+      summary: Update a supplier
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object } } } }
+      responses: { '200': { description: Updated } }
+    delete:
+      tags: [Admin — Purchasing]
+      summary: Deactivate a supplier
+      parameters: [{ $ref: '#/components/parameters/id' }, { $ref: '#/components/parameters/hard' }]
+      responses: { '200': { description: Deleted }, '409': { description: '`SUPPLIER_HAS_PURCHASES`' } }
+
+  /admin/purchases:
+    get:
+      tags: [Admin — Purchasing]
+      summary: List purchases
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - { name: status, in: query, schema: { type: string, enum: [DRAFT, RECEIVED, CANCELLED] } }
+        - { name: supplierId, in: query, schema: { type: integer } }
+      responses: { '200': { description: OK } }
+    post:
+      tags: [Admin — Purchasing]
+      summary: Create a purchase (optionally receiving it immediately)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [supplierId, items]
+              properties:
+                supplierId: { type: integer }
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required: [variantId, quantity, unitCost]
+                    properties:
+                      variantId: { type: integer }
+                      quantity: { type: integer, minimum: 1 }
+                      unitCost: { type: number, minimum: 0 }
+                note: { type: string }
+                receiveNow: { type: boolean }
+      responses: { '201': { description: Created }, '404': { description: '`SUPPLIER_NOT_FOUND` or `VARIANT_NOT_FOUND`' } }
+
+  /admin/purchases/{id}:
+    get:
+      tags: [Admin — Purchasing]
+      summary: Get a purchase
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { $ref: '#/components/schemas/Purchase' }
+
+  /admin/purchases/{id}/receive:
+    post:
+      tags: [Admin — Purchasing]
+      summary: Receive a draft purchase into stock
+      description: >-
+        Increases stock for every line and writes a PURCHASE inventory transaction per
+        line, then flips the purchase to RECEIVED — all atomically. Receiving the same
+        purchase twice is impossible.
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses:
+        '200': { description: Received }
+        '409': { description: '`PURCHASE_ALREADY_RECEIVED` or `PURCHASE_CANCELLED`' }
+
+  /admin/purchases/{id}/cancel:
+    post:
+      tags: [Admin — Purchasing]
+      summary: Cancel a draft purchase
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: Cancelled }, '409': { description: '`PURCHASE_ALREADY_RECEIVED`' } }
+
+  # -------------------------------------------------------- Admin — Returns ----
+  /admin/returns:
+    get:
+      tags: [Admin — Returns]
+      summary: List returns
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - { name: status, in: query, schema: { type: string, enum: [REQUESTED, ACCEPTED, REJECTED] } }
+        - { name: orderId, in: query, schema: { type: integer } }
+      responses: { '200': { description: OK } }
+    post:
+      tags: [Admin — Returns]
+      summary: Record a return against an order
+      description: >-
+        Defaults to `autoAccept: true`, which restores stock and writes a RETURN
+        inventory transaction in the same transaction. Quantity may never exceed what
+        remains eligible on the order.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderId, items]
+              properties:
+                orderId: { type: integer }
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required: [variantId, quantity]
+                    properties:
+                      variantId: { type: integer }
+                      quantity: { type: integer, minimum: 1 }
+                      reason: { type: string }
+                reason: { type: string }
+                autoAccept: { type: boolean, default: true }
+      responses:
+        '201': { description: Created }
+        '409': { description: '`ORDER_NOT_RETURNABLE`' }
+        '422': { description: '`INVALID_RETURN_QUANTITY` or `ITEM_NOT_IN_ORDER`' }
+
+  /admin/returns/eligibility/{orderId}:
+    get:
+      tags: [Admin — Returns]
+      summary: Remaining returnable quantity per line of an order
+      parameters: [{ name: orderId, in: path, required: true, schema: { type: integer } }]
+      responses: { '200': { description: OK } }
+
+  /admin/returns/{id}:
+    get:
+      tags: [Admin — Returns]
+      summary: Get a return
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: OK } }
+
+  /admin/returns/{id}/accept:
+    post:
+      tags: [Admin — Returns]
+      summary: Accept a requested return (restores stock)
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: Accepted }, '409': { description: '`RETURN_ALREADY_PROCESSED`' } }
+
+  /admin/returns/{id}/reject:
+    post:
+      tags: [Admin — Returns]
+      summary: Reject a requested return (no stock movement)
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: Rejected } }
+
+  # ------------------------------------------------------ Admin — Customers ----
+  /admin/customers:
+    get:
+      tags: [Admin — Customers]
+      summary: List customers with order counts and lifetime spend
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - { name: search, in: query, schema: { type: string } }
+        - { name: active, in: query, schema: { type: boolean } }
+      responses: { '200': { description: OK } }
+
+  /admin/customers/{id}:
+    get:
+      tags: [Admin — Customers]
+      summary: Customer detail with recent orders
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: OK }, '404': { description: '`CUSTOMER_NOT_FOUND`' } }
+
+  /admin/customers/{id}/status:
+    patch:
+      tags: [Admin — Customers]
+      summary: Activate or deactivate a customer
+      description: Deactivating immediately revokes all of that customer's sessions.
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [active]
+              properties: { active: { type: boolean } }
+      responses: { '200': { description: Updated } }
+
+  # -------------------------------------------------------- Admin — Reports ----
+  /admin/dashboard/summary:
+    get:
+      tags: [Admin — Reports]
+      summary: Dashboard headline figures
+      description: >-
+        Today's sales, revenue, orders and items sold; total inventory units; low-stock
+        and out-of-stock variant counts; total customers; plus returns and purchasing activity.
+      parameters:
+        - $ref: '#/components/parameters/preset'
+        - $ref: '#/components/parameters/from'
+        - $ref: '#/components/parameters/to'
+      responses: { '200': { description: OK } }
+
+  /admin/reports/sales:
+    get:
+      tags: [Admin — Reports]
+      summary: Sales broken down by day, source and payment method
+      parameters:
+        - $ref: '#/components/parameters/preset'
+        - $ref: '#/components/parameters/from'
+        - $ref: '#/components/parameters/to'
+        - { name: source, in: query, schema: { type: string, enum: [POS, ONLINE] } }
+      responses: { '200': { description: OK } }
+
+  /admin/reports/inventory:
+    get:
+      tags: [Admin — Reports]
+      summary: Stock valuation at cost and retail, by status and category
+      responses: { '200': { description: OK } }
+
+  /admin/reports/products:
+    get:
+      tags: [Admin — Reports]
+      summary: Best and slowest sellers with per-variant profit
+      parameters:
+        - $ref: '#/components/parameters/preset'
+        - $ref: '#/components/parameters/from'
+        - $ref: '#/components/parameters/to'
+      responses: { '200': { description: OK } }
+
+  /admin/reports/purchases:
+    get:
+      tags: [Admin — Reports]
+      summary: Purchasing activity by supplier
+      parameters: [{ $ref: '#/components/parameters/preset' }]
+      responses: { '200': { description: OK } }
+
+  /admin/reports/returns:
+    get:
+      tags: [Admin — Reports]
+      summary: Returns by reason and by variant
+      parameters: [{ $ref: '#/components/parameters/preset' }]
+      responses: { '200': { description: OK } }
+
+  /admin/reports/profit:
+    get:
+      tags: [Admin — Reports]
+      summary: Revenue minus cost of goods sold, per day
+      parameters:
+        - $ref: '#/components/parameters/preset'
+        - $ref: '#/components/parameters/from'
+        - $ref: '#/components/parameters/to'
+      responses: { '200': { description: OK } }
+
+  # --------------------------------------------------------- Admin — System ----
+  /admin/settings:
+    get:
+      tags: [Admin — System]
+      summary: All settings, merged with their defaults
+      responses: { '200': { description: OK } }
+    put:
+      tags: [Admin — System]
+      summary: Update settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [settings]
+              properties:
+                settings:
+                  type: object
+                  additionalProperties: { type: string }
+            example:
+              settings:
+                customer.expose_exact_stock: 'true'
+                orders.customer_cancel_window_hours: '48'
+      responses: { '200': { description: Updated } }
+
+  /admin/audit-logs:
+    get:
+      tags: [Admin — System]
+      summary: Audit trail of SUPER_ADMIN actions
+      description: >-
+        Records inventory adjustments, price and product changes, purchase receiving,
+        returns, order cancellations, customer account changes and setting updates.
+        Passwords and tokens are redacted and never stored.
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - { name: userId, in: query, schema: { type: integer } }
+        - { name: action, in: query, schema: { type: string, example: INVENTORY_ADJUSTED } }
+        - { name: entityType, in: query, schema: { type: string, example: ProductVariant } }
+        - { name: entityId, in: query, schema: { type: string } }
+        - $ref: '#/components/parameters/from'
+        - $ref: '#/components/parameters/to'
+      responses: { '200': { description: OK } }
