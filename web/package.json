@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "verify:ui": "node scripts/verify-ui.mjs",
     "dev:host": "vite --host",
-    "verify:i18n": "node scripts/verify-i18n.mjs"
+    "verify:i18n": "node scripts/verify-i18n.mjs",
+    "dev:railway": "VITE_API_PROXY=https://rentoni-production.up.railway.app vite --host"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.5",
