@@ -18,8 +18,14 @@ import {
 import { cn } from '@/lib/cn';
 import { useT } from '@/i18n';
 
+/**
+ * Variants no longer vary by colour, but product_variants.color is NOT NULL with a
+ * CHECK that it is non-empty, and rows are unique on (productId, color, size). A
+ * single constant satisfies both while keeping exactly one variant per size.
+ */
+const DEFAULT_COLOR = 'Standard';
+
 const COMMON_SIZES = ['S', 'M', 'L', 'XL', 'XXL'];
-const COMMON_COLORS = ['White', 'Black', 'Blue', 'Grey', 'Navy', 'Pink'];
 
 /**
  * Builds a whole colour × size variant matrix in one pass.
@@ -36,9 +42,7 @@ export function VariantMatrixBuilder({
   onChange: (variants: VariantInput[]) => void;
 }) {
   const t = useT();
-  const [colors, setColors] = useState<string[]>([]);
   const [sizes, setSizes] = useState<string[]>([]);
-  const [customColor, setCustomColor] = useState('');
   const [defaults, setDefaults] = useState({
     skuPrefix: '',
     costPrice: '',
@@ -51,26 +55,19 @@ export function VariantMatrixBuilder({
     setList(list.includes(item) ? list.filter((x) => x !== item) : [...list, item]);
   }
 
-  function slug(text: string): string {
-    return text
-      .trim()
-      .toUpperCase()
-      .replace(/[^A-Z0-9]/g, '')
-      .slice(0, 3);
-  }
 
   function generate() {
     const prefix = defaults.skuPrefix.trim().toUpperCase() || 'SKU';
     const generated: VariantInput[] = [];
 
-    for (const color of colors) {
-      for (const size of sizes) {
-        const sku = `${prefix}-${slug(color)}-${size.toUpperCase()}`;
+    for (const size of sizes) {
+      {
+        const sku = `${prefix}-${size.toUpperCase()}`;
         // Never overwrite a row the admin has already edited.
         if (value.some((v) => v.sku === sku)) continue;
         generated.push({
           sku,
-          color,
+          color: DEFAULT_COLOR,
           size,
           costPrice: Number(defaults.costPrice) || 0,
           sellingPrice: Number(defaults.sellingPrice) || 0,
@@ -88,7 +85,7 @@ export function VariantMatrixBuilder({
     onChange(value.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   }
 
-  const canGenerate = colors.length > 0 && sizes.length > 0;
+  const canGenerate = sizes.length > 0;
 
   return (
     <Card>
@@ -97,56 +94,6 @@ export function VariantMatrixBuilder({
         description={t('admin.variants.matrix.body')}
       />
       <CardBody className="space-y-5">
-        <fieldset>
-          <legend className="mb-2 text-sm font-medium text-ink-700">{t('admin.variants.matrix.colours')}</legend>
-          <div className="flex flex-wrap gap-2">
-            {[...new Set([...COMMON_COLORS, ...colors])].map((color) => (
-              <button
-                key={color}
-                type="button"
-                onClick={() => toggle(colors, setColors, color)}
-                aria-pressed={colors.includes(color)}
-                className={cn(
-                  'rounded-md border px-3 py-1.5 text-sm font-medium transition-colors',
-                  colors.includes(color)
-                    ? 'border-brand-600 bg-brand-50 text-brand-700'
-                    : 'border-ink-300 bg-white text-ink-700 hover:bg-ink-50',
-                )}
-              >
-                {color}
-              </button>
-            ))}
-          </div>
-          <div className="mt-2 flex gap-2">
-            <Input
-              value={customColor}
-              onChange={(e) => setCustomColor(e.target.value)}
-              placeholder={t('admin.variants.matrix.addColour')}
-              aria-label={t('admin.variants.matrix.addCustomColour')}
-              className="max-w-48"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  const next = customColor.trim();
-                  if (next && !colors.includes(next)) setColors([...colors, next]);
-                  setCustomColor('');
-                }
-              }}
-            />
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => {
-                const next = customColor.trim();
-                if (next && !colors.includes(next)) setColors([...colors, next]);
-                setCustomColor('');
-              }}
-            >
-              {t('common.add')}
-            </Button>
-          </div>
-        </fieldset>
-
         <fieldset>
           <legend className="mb-2 text-sm font-medium text-ink-700">{t('admin.variants.matrix.sizes')}</legend>
           <div className="flex flex-wrap gap-2">
@@ -234,7 +181,7 @@ export function VariantMatrixBuilder({
 
         <Button type="button" variant="secondary" onClick={generate} disabled={!canGenerate}>
           {canGenerate
-            ? t('admin.variants.matrix.generateCount', { count: colors.length * sizes.length })
+            ? t('admin.variants.matrix.generateCount', { count: sizes.length })
             : t('admin.variants.matrix.generate')}
         </Button>
 
@@ -268,7 +215,7 @@ export function VariantMatrixBuilder({
                       <Input
                         value={variant.sku}
                         onChange={(e) => updateRow(index, { sku: e.target.value })}
-                        aria-label={t('admin.variants.matrix.skuFor', { colour: variant.color, size: variant.size })}
+                        aria-label={t('admin.variants.matrix.skuFor', { size: variant.size })}
                         className="h-8 w-32 font-mono text-xs"
                       />
                     </TD>
