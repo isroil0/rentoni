@@ -29,7 +29,6 @@ const SaleDetailPage = lazy(() => import('@/pages/admin/SaleDetailPage'));
 const AdminReturnsPage = lazy(() => import('@/pages/admin/ReturnsPage'));
 const CustomersPage = lazy(() => import('@/pages/admin/CustomersPage'));
 const CustomerDetailPage = lazy(() => import('@/pages/admin/CustomerDetailPage'));
-const SuppliersPage = lazy(() => import('@/pages/admin/SuppliersPage'));
 const ReportsPage = lazy(() => import('@/pages/admin/ReportsPage'));
 const AuditLogsPage = lazy(() => import('@/pages/admin/AuditLogsPage'));
 const SettingsPage = lazy(() => import('@/pages/admin/SettingsPage'));
@@ -104,7 +103,6 @@ export default function App() {
             <Route path="returns" element={<AdminReturnsPage />} />
             <Route path="customers" element={<CustomersPage />} />
             <Route path="customers/:id" element={<CustomerDetailPage />} />
-            <Route path="suppliers" element={<SuppliersPage />} />
             <Route path="reports" element={<ReportsPage />} />
             <Route path="audit-logs" element={<AuditLogsPage />} />
             <Route path="settings" element={<SettingsPage />} />

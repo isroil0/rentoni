@@ -28,7 +28,6 @@ export const ADMIN_NAV: AdminNavItem[] = [
   { to: '/admin/sales', labelKey: 'admin.nav.sales', icon: icon('M4 19V5m0 14h16M8 15l3.5-4 3 2.5L20 7') },
   { to: '/admin/returns', labelKey: 'admin.nav.returns', icon: icon('M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3') },
   { to: '/admin/customers', labelKey: 'admin.nav.customers', icon: icon('M16 19a4 4 0 0 0-8 0M12 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm9 8a3.5 3.5 0 0 0-5-3.2M3 19a3.5 3.5 0 0 1 5-3.2') },
-  { to: '/admin/suppliers', labelKey: 'admin.nav.suppliers', icon: icon('M3 9h13v8H3V9Zm13 2h3l2 3v3h-5v-6ZM7 20a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Zm11 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z') },
   { to: '/admin/reports', labelKey: 'admin.nav.reports', icon: icon('M6 3h9l4 4v14H6V3Zm9 0v4h4M9 13h6M9 17h6') },
   { to: '/admin/audit-logs', labelKey: 'admin.nav.auditLogs', icon: icon('M12 8v4l3 2m6-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z') },
   { to: '/admin/settings', labelKey: 'admin.nav.settings', icon: icon('M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm8-3a8 8 0 0 0-.2-1.7l2-1.5-2-3.4-2.3 1a8 8 0 0 0-3-1.7L14 2h-4l-.5 2.7a8 8 0 0 0-3 1.7l-2.3-1-2 3.4 2 1.5a8.2 8.2 0 0 0 0 3.4l-2 1.5 2 3.4 2.3-1a8 8 0 0 0 3 1.7L10 22h4l.5-2.7a8 8 0 0 0 3-1.7l2.3 1 2-3.4-2-1.5c.1-.6.2-1.1.2-1.7Z') },
