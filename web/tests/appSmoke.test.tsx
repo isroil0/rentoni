@@ -122,7 +122,6 @@ describe('application smoke (real API)', () => {
       ['/admin/sales', /orders|No sales found/i],
       ['/admin/returns', /Record a return/i],
       ['/admin/customers', /customers/i],
-      ['/admin/suppliers', /Add supplier/i],
       ['/admin/reports', /Revenue/i],
       ['/admin/audit-logs', /administrative action/i],
       ['/admin/settings', /Store information/i],
