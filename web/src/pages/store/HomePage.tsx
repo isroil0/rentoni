@@ -107,24 +107,6 @@ export default function HomePage() {
           </div>
         </div>
       </section>
-
-      {/* Why shop with us */}
-      <section className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8">
-        <h2 className="text-xl font-semibold text-ink-900 sm:text-2xl">{t('home.whyShop')}</h2>
-        <dl className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          {[
-            { title: t('home.why.qualityTitle'), body: t('home.why.qualityBody') },
-            { title: t('home.why.sizesTitle'), body: t('home.why.sizesBody') },
-            { title: t('home.why.orderingTitle'), body: t('home.why.orderingBody') },
-            { title: t('home.why.serviceTitle'), body: t('home.why.serviceBody') },
-          ].map((item) => (
-            <div key={item.title} className="rounded-lg border border-ink-200 p-5">
-              <dt className="font-medium text-ink-900">{item.title}</dt>
-              <dd className="mt-1.5 text-sm text-ink-600">{item.body}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
     </>
   );
 }
