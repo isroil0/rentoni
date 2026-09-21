@@ -564,7 +564,6 @@ export const ru: Messages = {
       newProduct: 'Новый товар',
       coreDetails: 'Основные данные товара.',
       productName: 'Название товара',
-      selectCategory: 'Выберите категорию…',
       activeHint: 'Активен (виден в магазине)',
       created: 'Товар создан.',
       updated: 'Товар обновлён.',

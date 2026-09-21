@@ -55,7 +55,7 @@ export const variantUpdateSchema = variantCreateSchema
 
 export const productCreateSchema = z
   .object({
-    categoryId: positiveInt,
+    categoryId: positiveInt.nullish(),
     name: trimmedString(2, 200),
     description: z.string().trim().max(2000).nullish(),
     brand: z.string().trim().max(120).nullish(),

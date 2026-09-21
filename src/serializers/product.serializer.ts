@@ -86,7 +86,7 @@ export function customerVariant(variant: VariantRow, opts: { exposeExactStock: b
 
 type ProductRow = {
   id: number;
-  categoryId: number;
+  categoryId: number | null;
   name: string;
   description: string | null;
   brand: string | null;

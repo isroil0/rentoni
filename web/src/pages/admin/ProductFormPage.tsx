@@ -14,7 +14,6 @@ import {
   Field,
   Input,
   LoadingState,
-  Select,
   Textarea,
   useErrorMessage,
   useToast,
@@ -35,7 +34,6 @@ export default function ProductFormPage() {
 
   const [form, setForm] = useState({
     name: '',
-    categoryId: '',
     description: '',
     brand: '',
     active: true,
@@ -43,10 +41,6 @@ export default function ProductFormPage() {
   const [imageUrls, setImageUrls] = useState('');
   const [variants, setVariants] = useState<VariantInput[]>([]);
 
-  const categories = useQuery({
-    queryKey: qk.admin.categories({ limit: 100 }),
-    queryFn: () => AdminCatalogApi.listCategories({ limit: 100 }),
-  });
 
   const existing = useQuery({
     queryKey: qk.admin.product(productId),
@@ -58,7 +52,6 @@ export default function ProductFormPage() {
     if (existing.data) {
       setForm({
         name: existing.data.name,
-        categoryId: String(existing.data.categoryId),
         description: existing.data.description ?? '',
         brand: existing.data.brand ?? '',
         active: existing.data.active,
@@ -70,7 +63,6 @@ export default function ProductFormPage() {
     mutationFn: async () => {
       const base = {
         name: form.name.trim(),
-        categoryId: Number(form.categoryId),
         description: form.description.trim() || null,
         brand: form.brand.trim() || null,
         active: form.active,
@@ -126,24 +118,6 @@ export default function ProductFormPage() {
                 placeholder={t('misc.examples.productName')}
                 required
               />
-            )}
-          </Field>
-
-          <Field label={t('common.category')} required error={fieldErrors.categoryId}>
-            {(props) => (
-              <Select
-                {...props}
-                value={form.categoryId}
-                onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
-                required
-              >
-                <option value="">{t('admin.products.selectCategory')}</option>
-                {(categories.data?.items ?? []).map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </Select>
             )}
           </Field>
 

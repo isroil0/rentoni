@@ -74,7 +74,7 @@ model Category {
 
 model Product {
   id          Int      @id @default(autoincrement())
-  categoryId  Int      @map("category_id")
+  categoryId  Int?     @map("category_id")
   name        String
   description String?
   brand       String?
@@ -82,7 +82,7 @@ model Product {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  category Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  category Category?        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   variants ProductVariant[]
   images   ProductImage[]
 

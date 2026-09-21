@@ -72,7 +72,8 @@ export default function AdminProductDetailPage() {
           <h2 className="mt-2 text-xl font-semibold text-ink-900">{data.name}</h2>
           <p className="mt-1 text-sm text-ink-500">
             {data.brand ? `${data.brand} · ` : ''}
-            {data.category?.name} · {t('common.variantCount', { count: data.variantCount })} ·{' '}
+            {data.category ? `${data.category.name} · ` : ''}
+            {t('common.variantCount', { count: data.variantCount })} ·{' '}
             {t('admin.products.unitsInStock', { count: formatNumber(data.totalStock) })}
           </p>
         </div>

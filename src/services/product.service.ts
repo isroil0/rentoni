@@ -68,7 +68,12 @@ function buildProductWhere(p: ProductSearchParams, publicOnly: boolean): Prisma.
   const hasVariantFilter = Object.keys(variantConditions).length > 0;
 
   return {
-    ...(publicOnly ? { active: true, category: { active: true } } : {}),
+    ...(publicOnly
+      ? {
+          active: true,
+          OR: [{ categoryId: null }, { category: { active: true } }],
+        }
+      : {}),
     ...(p.active !== undefined && !publicOnly ? { active: p.active } : {}),
     ...(p.categoryId ? { categoryId: p.categoryId } : {}),
     ...(p.brand ? { brand: { contains: p.brand, mode: 'insensitive' as const } } : {}),
@@ -168,7 +173,11 @@ export const ProductService = {
   async publicGetById(id: number) {
     const exposeExactStock = await SettingsService.exposeExactStock();
     const product = await prisma.product.findFirst({
-      where: { id, active: true, category: { active: true } },
+      where: {
+        id,
+        active: true,
+        OR: [{ categoryId: null }, { category: { active: true } }],
+      },
       include: {
         category: { select: { id: true, name: true, active: true } },
         images: { orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }] },
@@ -185,7 +194,7 @@ export const ProductService = {
    */
   async create(
     input: {
-      categoryId: number;
+      categoryId?: number | null;
       name: string;
       description?: string | null;
       brand?: string | null;
@@ -196,12 +205,14 @@ export const ProductService = {
     actor: Actor,
   ) {
     const product = await runInTransaction(async (tx) => {
-      const category = await tx.category.findUnique({ where: { id: input.categoryId } });
-      if (!category) throw new AppError('CATEGORY_NOT_FOUND');
+      if (input.categoryId != null) {
+        const category = await tx.category.findUnique({ where: { id: input.categoryId } });
+        if (!category) throw new AppError('CATEGORY_NOT_FOUND');
+      }
 
       const createdProduct = await tx.product.create({
         data: {
-          categoryId: input.categoryId,
+          categoryId: input.categoryId ?? null,
           name: input.name,
           description: input.description ?? null,
           brand: input.brand ?? null,

@@ -14,7 +14,8 @@ export interface VariantInput {
 }
 
 export interface ProductInput {
-  categoryId: number;
+  /** Optional: products may be uncategorised. */
+  categoryId?: number | null;
   name: string;
   description?: string | null;
   brand?: string | null;

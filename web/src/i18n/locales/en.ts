@@ -572,7 +572,6 @@ export const en = {
       newProduct: 'New product',
       coreDetails: 'Core product details.',
       productName: 'Product name',
-      selectCategory: 'Select a category…',
       activeHint: 'Active (visible in the storefront)',
       created: 'Product created.',
       updated: 'Product updated.',

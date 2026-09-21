@@ -251,7 +251,8 @@ export const ReportService = {
       retailValueCents += quantity * v.sellingPriceCents;
       byStatus[status] += 1;
 
-      const categoryName = v.product.category.name;
+      // Products created without a category still have to appear in the report.
+      const categoryName = v.product.category?.name ?? 'Uncategorised';
       const c = byCategory.get(categoryName) ?? { units: 0, valueCents: 0 };
       byCategory.set(categoryName, {
         units: c.units + quantity,

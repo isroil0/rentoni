@@ -564,7 +564,6 @@ export const uz: Messages = {
       newProduct: 'Yangi mahsulot',
       coreDetails: 'Mahsulotning asosiy ma’lumotlari.',
       productName: 'Mahsulot nomi',
-      selectCategory: 'Kategoriyani tanlang…',
       activeHint: 'Faol (do‘konda ko‘rinadi)',
       created: 'Mahsulot yaratildi.',
       updated: 'Mahsulot yangilandi.',

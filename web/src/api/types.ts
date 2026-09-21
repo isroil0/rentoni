@@ -109,7 +109,7 @@ export interface AdminVariant {
 
 export interface AdminProduct {
   id: number;
-  categoryId: number;
+  categoryId: number | null;
   category: { id: number; name: string } | null;
   name: string;
   description: string | null;
@@ -202,7 +202,7 @@ export interface InventoryRow {
   color: string;
   size: string;
   active: boolean;
-  product: { id: number; name: string; brand: string | null; categoryId: number };
+  product: { id: number; name: string; brand: string | null; categoryId: number | null };
   quantity: number;
   minimumStock: number;
   status: StockStatus;
