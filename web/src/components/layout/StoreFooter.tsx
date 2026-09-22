@@ -78,8 +78,8 @@ export function StoreFooter() {
           <address className="mt-3 space-y-2 text-sm not-italic text-ink-600">
             <p>Rentoni Shirts</p>
             <p>
-              <a href="mailto:support@rentoni.test" className="hover:text-ink-900">
-                support@rentoni.test
+              <a href="mailto:isroil55673600@gmail.com" className="hover:text-ink-900">
+                isroil55673600@gmail.com
               </a>
             </p>
             <p>{t('footer.hours')}</p>

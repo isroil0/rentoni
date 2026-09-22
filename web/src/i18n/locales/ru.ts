@@ -134,7 +134,7 @@ export const ru: Messages = {
     allShirts: 'Все рубашки',
     account: 'Профиль',
     contact: 'Контакты',
-    hours: 'Пн–Пт, 9:00–17:00',
+    hours: 'Вт–Вс, 4:00–17:00',
     rights: '© {year} Rentoni. Все права защищены.',
   },
 

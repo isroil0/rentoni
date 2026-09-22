@@ -134,7 +134,7 @@ export const uz: Messages = {
     allShirts: 'Barcha ko‘ylaklar',
     account: 'Hisob',
     contact: 'Aloqa',
-    hours: 'Du–Ju, 9:00–17:00',
+    hours: 'Se–Ya, 4:00–17:00',
     rights: '© {year} Rentoni. Barcha huquqlar himoyalangan.',
   },
 

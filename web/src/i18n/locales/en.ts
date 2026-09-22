@@ -142,7 +142,7 @@ export const en = {
     allShirts: 'All shirts',
     account: 'Account',
     contact: 'Contact',
-    hours: 'Mon–Fri, 9am–5pm',
+    hours: 'Tue–Sun, 4am–5pm',
     rights: '© {year} Rentoni. All rights reserved.',
   },
 
