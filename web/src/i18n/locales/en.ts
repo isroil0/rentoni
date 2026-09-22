@@ -126,7 +126,7 @@ export const en = {
 
   home: {
     heroTitle: 'Find your perfect shirt',
-    heroBody: 'Oxford, formal, slim fit and linen shirts — cut properly, in every size from S to XL and the colours you actually wear.',
+    heroBody: 'Welcome to our wholesale store! Everything is priced at wholesale — find exactly the shirts you need.',
     shopShirts: 'Shop shirts',
     browseCategories: 'Browse categories',
     shirtIllustration: "Men's shirt illustration",

@@ -118,7 +118,7 @@ export const uz: Messages = {
 
   home: {
     heroTitle: 'O‘zingizga mos ko‘ylakni toping',
-    heroBody: 'Oksford, klassik, tor bichimli va zig‘irdan tikilgan ko‘ylaklar — to‘g‘ri bichim, S dan XL gacha o‘lchamlar va haqiqatda kiyiladigan ranglar.',
+    heroBody: 'Optom doʻkonga xush kelibsiz! Narxlar optom narxida, oʻzingizga kerak boʻlgan koʻylaklarni topishingiz mumkin.',
     shopShirts: 'Do‘konga o‘tish',
     browseCategories: 'Kategoriyalarni ko‘rish',
     shirtIllustration: 'Erkaklar ko‘ylagi tasviri',
