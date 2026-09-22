@@ -14,11 +14,6 @@ export default function HomePage() {
     queryFn: () => CatalogApi.listProducts({ limit: 8, sort: 'newest' }),
   });
 
-  const categories = useQuery({
-    queryKey: qk.catalog.categories(),
-    queryFn: () => CatalogApi.listCategories(),
-    staleTime: 5 * 60_000,
-  });
 
   return (
     <>
@@ -82,31 +77,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Categories */}
-      <section className="border-t border-ink-200 bg-ink-50">
-        <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8">
-          <h2 className="text-xl font-semibold text-ink-900 sm:text-2xl">{t('home.shopByCategory')}</h2>
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {(categories.data ?? []).map((category) => (
-              <Link
-                key={category.id}
-                to={`/shop?categoryId=${category.id}`}
-                className="group flex items-center gap-4 rounded-lg border border-ink-200 bg-white p-5 transition-colors hover:border-ink-400"
-              >
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-ink-50 text-ink-400 group-hover:text-brand-600">
-                  <ShirtMark className="h-6 w-6" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block font-medium text-ink-900">{category.name}</span>
-                  <span className="block truncate text-sm text-ink-500">
-                    {t('common.productCount', { count: category.productCount ?? 0 })}
-                  </span>
-                </span>
-              </Link>
-            ))}
-          </div>
-        </div>
-      </section>
     </>
   );
 }

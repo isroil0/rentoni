@@ -132,7 +132,6 @@ export const en = {
     shirtIllustration: "Men's shirt illustration",
     featured: 'Featured shirts',
     featuredBody: 'A selection from the current collection.',
-    shopByCategory: 'Shop by category',
     emptyTitle: 'No products found.',
     emptyBody: 'The collection is being updated — check back soon.',
   },

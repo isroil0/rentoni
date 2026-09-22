@@ -124,7 +124,6 @@ export const uz: Messages = {
     shirtIllustration: 'Erkaklar ko‘ylagi tasviri',
     featured: 'Tanlangan ko‘ylaklar',
     featuredBody: 'Joriy to‘plamdan tanlov.',
-    shopByCategory: 'Kategoriya bo‘yicha xarid',
     emptyTitle: 'Mahsulot topilmadi.',
     emptyBody: 'To‘plam yangilanmoqda — keyinroq qarab turing.',
   },

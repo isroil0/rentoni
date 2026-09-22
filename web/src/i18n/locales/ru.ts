@@ -124,7 +124,6 @@ export const ru: Messages = {
     shirtIllustration: 'Иллюстрация мужской рубашки',
     featured: 'Популярные рубашки',
     featuredBody: 'Подборка из текущей коллекции.',
-    shopByCategory: 'Покупки по категориям',
     emptyTitle: 'Товары не найдены.',
     emptyBody: 'Коллекция обновляется — загляните позже.',
   },
